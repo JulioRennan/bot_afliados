@@ -14,7 +14,8 @@
     "playwright": "^1.50.0",
     "playwright-extra": "^4.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "satori": "^0.19.2"
+    "satori": "^0.19.2",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
