@@ -1,0 +1,24 @@
+{
+  "name": "bot-afiliados",
+  "version": "1.0.0",
+  "description": "Bot de geração de links de afiliados do Mercado Livre",
+  "scripts": {
+    "capturar": "tsx scripts/capturar_credenciais.ts",
+    "ofertas": "tsx scripts/scraping_ofertas.ts",
+    "stories": "tsx scripts/gerar_stories.ts",
+    "stories:test": "tsx scripts/gerar_stories.ts '{\"row_number\":2,\"titulo\":\"Celular Samsung Galaxy A16 128gb 4gb Ram Câmera 50mp Tela 6.7 Nfc Preto\",\"descricao\":\"Por Samsung\",\"categoria\":\"\",\"precoOriginal\":\"R$ 1549.00\",\"precoDesconto\":\"R$ 788.50\",\"desconto\":\"49% OFF no Pix ou Saldo no Mercado Pago\",\"imagem\":\"https://http2.mlstatic.com/D_NQ_NP_707658-MLA96866257617_102025-F.jpg\",\"link\":\"https://www.mercadolivre.com.br/celular-samsung-galaxy-a16-128gb-4gb-ram-cmera-50mp-tela-67-nfc-preto/p/MLB44372580\",\"source\":\"mercadolivre\",\"linkAfiliado\":\"https://mercadolivre.com/sec/1RH9GFF\"}'"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "dotenv": "^16.4.7",
+    "playwright": "^1.50.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "satori": "^0.19.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
