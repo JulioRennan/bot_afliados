@@ -17,6 +17,7 @@
 
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
+import sharp from "sharp";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -130,7 +131,7 @@ function formatarPreco(preco: string | null): string | null {
 function nomeArquivo(produto: Produto): string {
   const id = produto.row_number ?? Date.now();
   const ts = new Date().toISOString().slice(0, 19).replace(/[:.]/g, "-");
-  return `story_${id}_${ts}.png`;
+  return `story_${id}_${ts}.jpg`;
 }
 
 async function lerStdin(): Promise<string> {
@@ -363,11 +364,12 @@ async function main() {
     fonts,
   });
 
-  const png = new Resvg(svg, { fitTo: { mode: "width", value: 1080 } }).render().asPng();
+  const png  = new Resvg(svg, { fitTo: { mode: "width", value: 1080 } }).render().asPng();
+  const jpeg = await sharp(png).jpeg({ quality: 92 }).toBuffer();
 
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   const caminho = path.join(OUTPUT_DIR, nomeArquivo(produto));
-  fs.writeFileSync(caminho, png);
+  fs.writeFileSync(caminho, jpeg);
 
   // ── Saída JSON (para n8n ou qualquer orquestrador) ──────────────────────────
   process.stdout.write(JSON.stringify({ sucesso: true, arquivo: caminho }) + "\n");
