@@ -11,15 +11,17 @@
  *   # via stdin (ex: n8n Execute Command):
  *   echo '{"titulo":"..."}' | npx tsx scripts/gerar_stories.ts
  *
- * Saída (stdout): JSON com o caminho do arquivo gerado
- *   {"sucesso":true,"arquivo":"/caminho/stories/story_....png"}
+ * Saída (stdout): JSON com o nome do arquivo no R2
+ *   {"sucesso":true,"arquivo":"story_amazon_1234567890.jpg"}
  */
 
+import "dotenv/config";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 import sharp from "sharp";
 import * as fs from "fs";
 import * as path from "path";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -42,6 +44,26 @@ interface Produto {
 const OUTPUT_DIR      = path.resolve(__dirname, "../stories");
 const FONTS_CACHE     = path.resolve(__dirname, "../.fonts_cache");
 const TEMPLATES_DIR   = path.resolve(__dirname, "../templates_stories");
+
+// ─── Cloudflare R2 ─────────────────────────────────────────────────────────────
+
+const r2 = new S3Client({
+  region: "auto",
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId:     process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
+
+async function uploadR2(nome: string, buffer: Buffer): Promise<void> {
+  await r2.send(new PutObjectCommand({
+    Bucket:      process.env.R2_BUCKET_NAME!,
+    Key:         `stories/${nome}`,
+    Body:        buffer,
+    ContentType: "image/jpeg",
+  }));
+}
 
 // ─── Design tokens (Figma: MEI clube / Instagram story - 5) ───────────────────
 
@@ -417,12 +439,12 @@ async function main() {
   const png  = new Resvg(svg, { fitTo: { mode: "width", value: 1080 } }).render().asPng();
   const jpeg = await sharp(png).jpeg({ quality: 92 }).toBuffer();
 
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  const caminho = path.join(OUTPUT_DIR, nomeArquivo(produto));
-  fs.writeFileSync(caminho, jpeg);
+  // ── Upload para o R2 ─────────────────────────────────────────────────────────
+  const nome = nomeArquivo(produto);
+  await uploadR2(nome, jpeg);
 
   // ── Saída JSON (para n8n ou qualquer orquestrador) ──────────────────────────
-  process.stdout.write(JSON.stringify({ sucesso: true, arquivo: caminho }) + "\n");
+  process.stdout.write(JSON.stringify({ sucesso: true, arquivo: `stories/${nome}` }) + "\n");
 }
 
 main().catch((err) => {
