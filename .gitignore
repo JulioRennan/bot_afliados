@@ -1,3 +1,5 @@
 .env
 .chrome_profile/
 node_modules/
+ofertas/ofertas_*.json
+ofertas/_debug_*.json

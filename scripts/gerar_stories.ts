@@ -6,10 +6,10 @@
  *
  * Uso:
  *   # via argumento JSON:
- *   npx tsx scripts/gerar_stories.ts '{"titulo":"...","precoDesconto":"...",...}'
+ *   npx tsx scripts/ofertas_mercado_livre.ts '{"title":"...","current_price":74.95,...}'
  *
  *   # via stdin (ex: n8n Execute Command):
- *   echo '{"titulo":"..."}' | npx tsx scripts/gerar_stories.ts
+ *   echo '{"title":"..."}' | npx tsx scripts/ofertas_mercado_livre.ts
  *
  * Saída (stdout): JSON com o nome do arquivo no R2
  *   {"sucesso":true,"arquivo":"story_amazon_1234567890.jpg"}
@@ -25,25 +25,30 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
+// Espelho do schema public.products do Supabase
 interface Produto {
-  row_number?:   number;
-  titulo:        string;
-  descricao?:    string;
-  categoria?:    string;
-  precoOriginal: string | null;
-  precoDesconto: string;
-  desconto:      string | null;
-  imagem:        string | null;
-  link?:         string | null;
-  source?:       string;
-  linkAfiliado?: string | null;
+  external_id?: string | null;
+  title: string;
+  desc?: string | null;
+  category?: string | null;
+  original_price: number | null;
+  current_price: number;
+  discount: number | null;  // valor inteiro, ex: 68
+  rating?: number | null;
+  image: string | null;
+  product_link?: string | null;
+  affiliate_link?: string | null;
+  slug?: string | null;
+  source?: string;
+  status?: string | null;
+  file_name?: string | null;
 }
 
 // ─── Configuração ──────────────────────────────────────────────────────────────
 
-const OUTPUT_DIR      = path.resolve(__dirname, "../stories");
-const FONTS_CACHE     = path.resolve(__dirname, "../.fonts_cache");
-const TEMPLATES_DIR   = path.resolve(__dirname, "../templates_stories");
+const OUTPUT_DIR = path.resolve(__dirname, "../stories");
+const FONTS_CACHE = path.resolve(__dirname, "../.fonts_cache");
+const TEMPLATES_DIR = path.resolve(__dirname, "../templates_stories");
 
 // ─── Cloudflare R2 ─────────────────────────────────────────────────────────────
 
@@ -51,16 +56,16 @@ const r2 = new S3Client({
   region: "auto",
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
   credentials: {
-    accessKeyId:     process.env.R2_ACCESS_KEY_ID!,
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
   },
 });
 
 async function uploadR2(nome: string, buffer: Buffer): Promise<void> {
   await r2.send(new PutObjectCommand({
-    Bucket:      process.env.R2_BUCKET_NAME!,
-    Key:         `stories/${nome}`,
-    Body:        buffer,
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: `stories/${nome}`,
+    Body: buffer,
     ContentType: "image/jpeg",
   }));
 }
@@ -68,17 +73,17 @@ async function uploadR2(nome: string, buffer: Buffer): Promise<void> {
 // ─── Design tokens (Figma: MEI clube / Instagram story - 5) ───────────────────
 
 const C = {
-  cardBorder:    "#7d2f04",
-  branco:        "#FFFFFF",
+  cardBorder: "#7d2f04",
+  branco: "#FFFFFF",
   textoPrimario: "#1a1a1a",
-  precoRiscado:  "#c7c7cc",
+  precoRiscado: "#c7c7cc",
   verdeDesconto: "#13a853",
-  bgBadge:       "#ecf7ef",
+  bgBadge: "#ecf7ef",
 } as const;
 
 // Medidas exatas extraídas do Figma (canvas 1080×1920)
 const CARD = { left: 77, top: 266, width: 925, padding: 40 } as const;
-const BTN  = { left: 77, top: 1541, width: 925, height: 169 } as const;
+const BTN = { left: 77, top: 1541, width: 925, height: 169 } as const;
 
 // ─── Fontes ────────────────────────────────────────────────────────────────────
 
@@ -94,9 +99,9 @@ async function baixarPoppins(peso: 500 | 600 | 700): Promise<Buffer> {
 
   process.stderr.write(`  Baixando Poppins ${peso}...\n`);
   const data = Buffer.from(
-    await fetch(POPPINS_TTF[peso]).then((r) => {
+    await fetch(POPPINS_TTF[peso]).then(async (r) => {
       if (!r.ok) throw new Error(`HTTP ${r.status} ao baixar Poppins ${peso}`);
-      return r.arrayBuffer();
+      return Buffer.from(await r.arrayBuffer());
     }),
   );
 
@@ -142,22 +147,14 @@ function carregarTemplateBg(source: string | undefined): string {
   return `data:image/png;base64,${buf.toString("base64")}`;
 }
 
-function extrairPercentual(desconto: string | null): number | null {
-  const m = desconto?.match(/(\d+)%/);
-  return m ? parseInt(m[1], 10) : null;
-}
-
-// Converte "R$ 1549.00" → "R$ 1.549,00"  /  "R$ 788.50" → "R$ 788,50"
-function formatarPreco(preco: string | null): string | null {
-  if (!preco) return null;
-  if (preco.includes(",")) return preco; // já formatado
-  return preco.replace(/([\d.]+)$/, (match) => {
-    const num = parseFloat(match);
-    return num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  });
+// Formata número para "R$ 1.549,00"
+function formatarPreco(preco: number | null): string | null {
+  if (preco == null) return null;
+  return preco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 function nomeArquivo(produto: Produto): string {
+  if (produto.file_name) return produto.file_name.endsWith(".jpg") ? produto.file_name : `${produto.file_name}.jpg`;
   const ts = Date.now();
   const plataforma = produto.source?.toLowerCase() === "amazon" ? "amazon" : "ml";
   return `story_${plataforma}_${ts}.jpg`;
@@ -188,13 +185,13 @@ function comSombra(cardStyle: Record<string, any>, children: any[]): any {
           type: "div",
           props: {
             style: {
-              position:        "absolute",
-              top:             20,
-              left:            20,
-              right:           -20,
-              bottom:          -20,
+              position: "absolute",
+              top: 20,
+              left: 20,
+              right: -20,
+              bottom: -20,
               backgroundColor: C.cardBorder,
-              borderRadius:    20,
+              borderRadius: 20,
             },
             children: "",
           },
@@ -207,21 +204,21 @@ function comSombra(cardStyle: Record<string, any>, children: any[]): any {
 }
 
 function gerarLayout(produto: Produto, imgSrc: string | null, bgBase64: string): any {
-  const percentual = extrairPercentual(produto.desconto);
-  const precoOrig  = formatarPreco(produto.precoOriginal);
-  const precoDesc  = formatarPreco(produto.precoDesconto) ?? produto.precoDesconto;
+  const percentual = produto.discount;
+  const precoOrig = formatarPreco(produto.original_price);
+  const precoDesc = formatarPreco(produto.current_price) ?? String(produto.current_price);
 
   return {
     type: "div",
     props: {
       style: {
-        display:         "flex",
-        position:        "relative",
-        width:           1080,
-        height:          1920,
+        display: "flex",
+        position: "relative",
+        width: 1080,
+        height: 1920,
         backgroundImage: `url(${bgBase64})`,
-        backgroundSize:  "cover",
-        fontFamily:      "Poppins",
+        backgroundSize: "cover",
+        fontFamily: "Poppins",
       },
       children: [
 
@@ -230,28 +227,28 @@ function gerarLayout(produto: Produto, imgSrc: string | null, bgBase64: string):
           type: "div",
           props: {
             style: {
-              position:      "absolute",
-              top:           CARD.top,
-              left:          CARD.left,
-              width:         CARD.width,
-              display:       "flex",
+              position: "absolute",
+              top: CARD.top,
+              left: CARD.left,
+              width: CARD.width,
+              display: "flex",
               flexDirection: "column",
-              gap:           60,
+              gap: 60,
             },
             children: [
 
               // ── Card de produto ──────────────────────────────────────────────
               comSombra({
-                position:        "relative",
-                width:           CARD.width,
-                display:         "flex",
-                flexDirection:   "column",
+                position: "relative",
+                width: CARD.width,
+                display: "flex",
+                flexDirection: "column",
                 backgroundColor: C.branco,
-                borderWidth:     8,
-                borderStyle:     "solid",
-                borderColor:     C.cardBorder,
-                borderRadius:    20,
-                padding:         CARD.padding,
+                borderWidth: 8,
+                borderStyle: "solid",
+                borderColor: C.cardBorder,
+                borderRadius: 20,
+                padding: CARD.padding,
               }, [
 
                 // Imagem do produto
@@ -259,27 +256,27 @@ function gerarLayout(produto: Produto, imgSrc: string | null, bgBase64: string):
                   type: "div",
                   props: {
                     style: {
-                      width:          845, // 925 - 2×40 padding
-                      height:         594,
-                      display:        "flex",
-                      alignItems:     "center",
+                      width: 845, // 925 - 2×40 padding
+                      height: 594,
+                      display: "flex",
+                      alignItems: "center",
                       justifyContent: "center",
                     },
                     children: imgSrc
                       ? {
-                          type: "img",
-                          props: {
-                            src: imgSrc,
-                            style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" },
-                          },
-                        }
-                      : {
-                          type: "div",
-                          props: {
-                            style: { fontSize: 120, color: "#e0e0e0", display: "flex" },
-                            children: "?",
-                          },
+                        type: "img",
+                        props: {
+                          src: imgSrc,
+                          style: { maxWidth: "100%", maxHeight: "100%", objectFit: "contain" },
                         },
+                      }
+                      : {
+                        type: "div",
+                        props: {
+                          style: { fontSize: 120, color: "#e0e0e0", display: "flex" },
+                          children: "?",
+                        },
+                      },
                   },
                 },
 
@@ -291,16 +288,16 @@ function gerarLayout(produto: Produto, imgSrc: string | null, bgBase64: string):
                   type: "div",
                   props: {
                     style: {
-                      fontSize:        40,
-                      fontWeight:      600,
-                      color:           C.textoPrimario,
-                      lineHeight:      1.5,
-                      display:         "-webkit-box",
+                      fontSize: 40,
+                      fontWeight: 600,
+                      color: C.textoPrimario,
+                      lineHeight: 1.5,
+                      display: "-webkit-box",
                       WebkitLineClamp: 3,
                       WebkitBoxOrient: "vertical",
-                      overflow:        "hidden",
+                      overflow: "hidden",
                     },
-                    children: produto.titulo,
+                    children: produto.title,
                   },
                 },
 
@@ -310,28 +307,28 @@ function gerarLayout(produto: Produto, imgSrc: string | null, bgBase64: string):
                 // Badge de desconto (condicional)
                 ...(percentual
                   ? [{
-                      type: "div",
-                      props: {
-                        style: {
-                          display:         "flex",
-                          alignSelf:       "flex-start",
-                          alignItems:      "center",
-                          backgroundColor: C.bgBadge,
-                          borderRadius:    10,
-                          paddingLeft:     24,
-                          paddingRight:    24,
-                          paddingTop:      12,
-                          paddingBottom:   12,
-                        },
-                        children: {
-                          type: "span",
-                          props: {
-                            style: { fontSize: 40, fontWeight: 500, color: C.verdeDesconto },
-                            children: `${percentual}% OFF`,
-                          },
+                    type: "div",
+                    props: {
+                      style: {
+                        display: "flex",
+                        alignSelf: "flex-start",
+                        alignItems: "center",
+                        backgroundColor: C.bgBadge,
+                        borderRadius: 10,
+                        paddingLeft: 24,
+                        paddingRight: 24,
+                        paddingTop: 12,
+                        paddingBottom: 12,
+                      },
+                      children: {
+                        type: "span",
+                        props: {
+                          style: { fontSize: 40, fontWeight: 500, color: C.verdeDesconto },
+                          children: `${percentual}% OFF`,
                         },
                       },
-                    }]
+                    },
+                  }]
                   : []),
 
                 // Área de preço (altura automática)
@@ -342,27 +339,27 @@ function gerarLayout(produto: Produto, imgSrc: string | null, bgBase64: string):
                     children: [
                       ...(precoOrig
                         ? [{
-                            type: "div",
-                            props: {
-                              style: {
-                                display:        "flex",
-                                fontSize:       48,
-                                fontWeight:     600,
-                                color:          C.precoRiscado,
-                                textDecoration: "line-through",
-                              },
-                              children: `de ${precoOrig}`,
+                          type: "div",
+                          props: {
+                            style: {
+                              display: "flex",
+                              fontSize: 48,
+                              fontWeight: 600,
+                              color: C.precoRiscado,
+                              textDecoration: "line-through",
                             },
-                          }]
+                            children: `de ${precoOrig}`,
+                          },
+                        }]
                         : []),
                       {
                         type: "div",
                         props: {
                           style: {
-                            display:    "flex",
-                            fontSize:   96,
+                            display: "flex",
+                            fontSize: 96,
                             fontWeight: 700,
-                            color:      C.textoPrimario,
+                            color: C.textoPrimario,
                             lineHeight: 1,
                           },
                           children: precoDesc,
@@ -376,24 +373,24 @@ function gerarLayout(produto: Produto, imgSrc: string | null, bgBase64: string):
 
               // ── Botão "LINK NA BIO" (60px abaixo do card via gap) ───────────
               comSombra({
-                position:        "relative",
-                width:           CARD.width,
-                height:          BTN.height,
-                display:         "flex",
-                alignItems:      "center",
-                justifyContent:  "center",
+                position: "relative",
+                width: CARD.width,
+                height: BTN.height,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 backgroundColor: C.branco,
-                borderWidth:     5,
-                borderStyle:     "solid",
-                borderColor:     C.cardBorder,
-                borderRadius:    20,
+                borderWidth: 5,
+                borderStyle: "solid",
+                borderColor: C.cardBorder,
+                borderRadius: 20,
               }, [{
                 type: "span",
                 props: {
                   style: {
-                    fontSize:      64,
-                    fontWeight:    700,
-                    color:         C.cardBorder,
+                    fontSize: 64,
+                    fontWeight: 700,
+                    color: C.cardBorder,
                     letterSpacing: 2,
                   },
                   children: "LINK NA BIO",
@@ -425,18 +422,18 @@ async function main() {
   // ── Carrega em paralelo: fontes + imagem + background ───────────────────────
   const [fonts, imgBase64, bgBase64] = await Promise.all([
     carregarFontes(),
-    produto.imagem ? imagemParaBase64(produto.imagem) : Promise.resolve(null),
+    produto.image ? imagemParaBase64(produto.image) : Promise.resolve(null),
     Promise.resolve(carregarTemplateBg(produto.source)),
   ]);
 
   // ── Gera SVG → PNG → JPEG ────────────────────────────────────────────────────
-  const svg  = await satori(gerarLayout(produto, imgBase64, bgBase64), {
-    width:  1080,
+  const svg = await satori(gerarLayout(produto, imgBase64, bgBase64), {
+    width: 1080,
     height: 1920,
     fonts,
   });
 
-  const png  = new Resvg(svg, { fitTo: { mode: "width", value: 1080 } }).render().asPng();
+  const png = new Resvg(svg, { fitTo: { mode: "width", value: 1080 } }).render().asPng();
   const jpeg = await sharp(png).jpeg({ quality: 92 }).toBuffer();
 
   // ── Upload para o R2 ─────────────────────────────────────────────────────────
